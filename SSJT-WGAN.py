@@ -36,6 +36,7 @@ threshold = 0.9
 datasets = "chiller"
 peizhi = '0.1+0.9'
 seed = 36
+
 np.random.seed(seed)
 torch.manual_seed(seed)
 if torch.cuda.is_available():
@@ -46,12 +47,14 @@ label_encoder = LabelEncoder()
 
 class BasicBlock1D(nn.Module):
     expansion = 1
+
     def __init__(self, in_planes, planes, stride=1):
         super(BasicBlock1D, self).__init__()
         self.conv1 = nn.Conv1d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm1d(planes)
         self.conv2 = nn.Conv1d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm1d(planes)
+
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
             self.shortcut = nn.Sequential(
@@ -78,6 +81,7 @@ class ResNet1D(nn.Module):
         self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
         self.layer4 = self._make_layer(block, 128, num_blocks[3], stride=2)
         self.linear = nn.Linear(128 * block.expansion, num_classes)
+
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
@@ -85,6 +89,7 @@ class ResNet1D(nn.Module):
             layers.append(block(self.in_planes, planes, stride))
             self.in_planes = planes * block.expansion
         return nn.Sequential(*layers)
+
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
         out = self.layer1(out)
@@ -95,6 +100,7 @@ class ResNet1D(nn.Module):
         emb = out.view(out.size(0), -1)
         out = self.linear(emb)
         return out
+
     def get_embedding_dim(self):
         return self.embDim
 
@@ -118,6 +124,7 @@ class WGAN_GP_generator(nn.Module):
             nn.Linear(64, N_size),
             nn.ReLU(True)
         )
+
     def forward(self, input):
         return self.main(input)
 
@@ -136,6 +143,7 @@ class WGAN_GP_discriminator(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
             nn.Linear(32, 1)
         )
+
     def forward(self, input):
         return self.main(input)
 
@@ -146,6 +154,7 @@ def compute_gradient_penalty(D, real_samples, fake_samples):
     interpolates = interpolates.view(interpolates.size(0), -1)
     d_interpolates = D(interpolates)
     fake = torch.ones(real_samples.size(0), 1).to(device)
+
     gradients = torch.autograd.grad(
         outputs=d_interpolates,
         inputs=interpolates,
@@ -176,6 +185,7 @@ def load_original_data(D_name):
         file = r"data\SZCAV\SZCAV_select_" + str(select_number) + ".csv"
         data_ = pd.read_csv(file, sep=',', header='infer')
         test_data = pd.read_csv(r'data\SZCAV\SZCAV_test_150.csv', sep=',', header='infer')
+
     return data_, test_data
 
 
@@ -189,6 +199,7 @@ def load_select_data(data, select_num, save=True):
     F6 = data[data['fault type'] == 'F6'].sample(n=select_num)
     F7 = data[data['fault type'] == 'F7'].sample(n=select_num)
     Normal = data[data['fault type'] == 'Normal'].sample(n=select_num)
+
     if datasets == 'SZCAV':
         F8 = data[data['fault type'] == 'F8'].sample(n=select_num)
         F9 = data[data['fault type'] == 'F9'].sample(n=select_num)
@@ -200,31 +211,37 @@ def load_select_data(data, select_num, save=True):
         sdata = pd.concat([F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, Normal], ignore_index=True)
     else:
         sdata = pd.concat([F1, F2, F3, F4, F5, F6, F7, Normal], ignore_index=True)
+
     X = sdata.iloc[:, data.columns != "fault type"]
     labels = sdata.iloc[:, data.columns == "fault type"]
+
     return (X, labels)
 
 
 def reset_models():
     global netG, netD, netC, optD, optG, optC
+
     netG = WGAN_GP_generator(nz=nz, N_size=N_size)
     netD = WGAN_GP_discriminator(input_dim=input_dim)
     netC = ResNet18_1D()
+
     netG.to(device)
     netD.to(device)
     netC.to(device)
+
     optD = optim.Adam(netD.parameters(), lr=0.0002, betas=(0.5, 0.999), weight_decay=1e-3)
     optG = optim.Adam(netG.parameters(), lr=0.0002, betas=(0.5, 0.999))
     optC = optim.Adam(netC.parameters(), lr=0.0002, betas=(0.5, 0.999), weight_decay=1e-3)
 
 
 def validate():
-    global max_test_accuracy, max_test_f1
+    global test_accuracy, test_f1
     netC.eval()
     all_predicted = []
     all_labels = []
     correct = 0
     total = 0
+
     with torch.no_grad():
         for data in testloader:
             inputs, labels = data[0].to(device), data[1].to(device)
@@ -240,21 +257,19 @@ def validate():
     print(f'F1 Score of the network on the 300 test images: {f1:.4f}')
     text = f"The finally Test F1 Score of the 300 test samples each class: {f1}\n"
     file.write(text)
-    if accuracy > max_test_accuracy:
-        max_test_accuracy = accuracy
-    if f1 > max_test_f1:
-        max_test_f1 = f1
-        cm = confusion_matrix(all_labels, all_predicted)
-        text_cm = f"Confusion Matrix for best F1 score:\n{cm}\n"
-        file_report.write(text_cm)
-        report = classification_report(all_labels, all_predicted)
-        text_report = f"Classification Report for best F1 score:\n{report}\n"
-        file_report.write(text_report)
+    cm = confusion_matrix(all_labels, all_predicted)
+    text_cm = f"Confusion Matrix for LAST EPOCH:\n{cm}\n"
+    file_report.write(text_cm)
+    report = classification_report(all_labels, all_predicted)
+    text_report = f"Classification Report for LAST EPOCH:\n{report}\n"
+    file_report.write(text_report)
+    max_test_accuracy = accuracy
+    max_test_f1 = f1
     netC.train()
 
 
 def train():
-    global max_test_accuracy, max_test_f1, epoch
+    global test_accuracy, test_f1, epoch
     text = f"Datasize:50\n"
     file.write(text)
     csv_file_path = f'\\result\\{datasets}\\{select_number}\\{peizhi}++losses_{iepoch}.csv'
@@ -287,6 +302,7 @@ def train():
             fakeImageBatch = netG(r)
             predictionsFake = netD(fakeImageBatch)
             lossGenerator = -torch.mean(predictionsFake)
+
             inputs_c = inputs.detach().unsqueeze(1)
             predictions = netC(inputs_c)
             realClassifierLoss = criterion(predictions, labels)
@@ -362,7 +378,8 @@ if __name__ == "__main__":
     train()
     etime = time.time()
     file.write(f"testing time: {etime - stime:.4f}\n")
-    file.write(f"Maximum Test F1 Score: {max_test_f1:.4f}\n")
-    file.write(f"Maximum Test Accuracy: {max_test_accuracy:.4f}%\n")
+    file.write(f"FINAL Epoch Test Accuracy: {test_accuracy:.4f}%\n")
+    file.write(f"FINAL Epoch Test F1 Score: {test_f1:.4f}\n")
     file.close()
     file_report.close()
+    
