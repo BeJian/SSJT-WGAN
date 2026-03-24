@@ -19,7 +19,6 @@ import torchvision.utils as vutils
 import warnings
 warnings.filterwarnings('ignore')
 
-# 全局参数配置
 class_num = 8
 data_dim = 64
 nz = 100
@@ -37,7 +36,6 @@ threshold = 0.9
 datasets = "chiller"
 peizhi = '0.1+0.9'
 seed = 36
-
 np.random.seed(seed)
 torch.manual_seed(seed)
 if torch.cuda.is_available():
